@@ -1,0 +1,1 @@
+cmd /k "C:\Users\J\Desktop\NPNS\env\Scripts\activate.bat"
