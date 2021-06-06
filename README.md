@@ -26,6 +26,13 @@ This is how the algorithm works:
 1. Volume monitoring
 2. Confidence adjustment
 
+## Acronyms
+1. NPNS - not profit NOT SELL
+2. MIMO - I'm in, I'm out
+3. FTW - Follow the whales
+4. RTD - Ride the dip
+5. JBAP - Just be a pussy
+
 ## To-do list
 
 1. Implement Stochastic monitoring. ✅
