@@ -37,8 +37,10 @@ This is how the algorithm works:
 
 1. Implement Stochastic monitoring. ✅
 2. Implement live price data ✅
-2. Implement trailing stop buy.
-3. Implement averaging down.
+2. Implement trailing stop buy. ✅
+3. Implement averaging down. ✅
+4. Implement MIMO sell. ✅
+5. Implement backtesting. ✅
 
 ## Resources
 
