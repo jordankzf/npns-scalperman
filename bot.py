@@ -1,19 +1,20 @@
 from binance import Client, ThreadedWebsocketManager
 from binance.enums import *
 from binance.helpers import round_step_size
-import config_testnet as config
+import config
 import pandas as pd
 import numpy as np
 from ta.momentum import StochasticOscillator
 from ta.volume import ForceIndexIndicator, VolumeWeightedAveragePrice
-import winsound
 
 # Set variables
-TRADE_SYMBOL = "BTCUSDT"
-tick_size = 0.000001
+TRADE_SYMBOL = "THETAUSDT"
+base_tick_size = 0.001
+quote_tick_size = 0.000001
 
 commission = 1.0006
-slippage = 0.999
+slippage_buy = 0.997
+slippage_sell = 0.998
 
 previousPrice = 99999.0
 currentPrice = 99999.0
@@ -26,16 +27,17 @@ orderType = "b"
 lastPurchasePriceAt = 99999.0
 noOfOrders = 0
 
-USDT_balance = 5000
+USDT_balance = 0
 BTC_balance = 0
 USDT_spent = 0
-purchase_size = 100
+purchase_size = 10
+profit = 0
 
 buy_orders = 0
 sell_orders = 0
 
 # Initialize Binance client
-client = Client(config.API_KEY, config.API_SECRET, testnet=True)
+client = Client(config.API_KEY, config.API_SECRET, testnet=False)
 
 # Grab latest candlesticks from 1 hour ago till now (total of 60)
 klines = client.get_historical_klines(TRADE_SYMBOL, Client.KLINE_INTERVAL_1MINUTE, "2 hours ago UTC")
@@ -62,6 +64,13 @@ def updateBalance():
     global USDT_balance, BTC_balance
     USDT_balance = float(client.get_asset_balance(asset='USDT')['free'])
     # BTC_balance = float(client.get_asset_balance(asset='BTC')['free'])
+
+def printBalance():
+    global USDT_balance, BTC_balance, USDT_spent
+    print("USDT_balance is {:.2f}".format(USDT_balance))
+    print("USDT_spent is {:.2f}".format(USDT_spent))
+    print("BTC_balance is {:.2f}".format(BTC_balance))
+
 
 def calcIndicators(btc_df):
     global attemptPurchase, activeOrder, orderType
@@ -93,7 +102,7 @@ def calcIndicators(btc_df):
     # print("Current Price is {:.2f}".format(currentClose))
 
     # if current_FI <= -500 and current_stochK <= 20 and not activeOrder:
-    if not activeOrder:
+    if current_stochK <= 8 and not activeOrder:
         orderType = "b"
         attemptPurchase = True
 
@@ -117,16 +126,6 @@ def handle_socket_candle(message):
     # is_candle_closed = candle['x']
     appendRow(candle)
 
-previousPrice = 99999.0
-currentPrice = 99999.0
-stopPrice = 99999.0
-newStopPrice = 99999.0
-firstRun = True
-attemptPurchase = False
-activeOrder = False
-orderType = "b"
-orderAmountUSDT = 10
-
 def calcCostBasis():
     global USDT_spent, BTC_balance
     return USDT_spent / BTC_balance * commission * commission
@@ -135,23 +134,23 @@ def calcProfitTarget():
     return calcCostBasis() * 1.003
 
 def handle_socket_order(msg):
-    global firstRun, previousPrice, stopPrice, newStopPrice, attemptPurchase, activeOrder, orderType, lastPurchasePriceAt, slippage
-    if BTC_balance > 0:
+    global firstRun, previousPrice, stopPrice, newStopPrice, attemptPurchase, activeOrder, orderType, lastPurchasePriceAt, slippage_buy, slippage_sell
+    if activeOrder:
         # If I'm at profit
-        if float(msg["a"]) > calcProfitTarget():
+        if float(msg["b"]) > calcProfitTarget():
             orderType = "s"
             attemptPurchase = True
         # If price dropped further
-        if float(msg["a"]) < (lastPurchasePriceAt * 0.996):
+        if float(msg["a"]) < (lastPurchasePriceAt * 0.994):
             orderType = "b"
             attemptPurchase = True
     if attemptPurchase:
         if orderType == "b":
             if firstRun:
                 previousPrice = float(msg["a"])
-                # print("Initial price is " + str(previousPrice))
-                stopPrice = previousPrice / slippage
-                # print("Initial Stop Loss Price updated to {:.4f}".format(stopPrice))
+                print("Initial price is " + str(previousPrice))
+                stopPrice = previousPrice / slippage_buy
+                print("Initial Stop Loss Price updated to {:.4f}".format(stopPrice))
                 firstRun = False
             else:
                 currentPrice = float(msg["a"])
@@ -159,14 +158,14 @@ def handle_socket_order(msg):
                 #     print("The price has stayed the same")
                 if currentPrice < previousPrice:
                     # print("Current price is " + str(currentPrice))
-                    newStopPrice = currentPrice / slippage
+                    newStopPrice = currentPrice / slippage_buy
 
                     if newStopPrice < stopPrice:
                         stopPrice = newStopPrice
                         # print("Stop Loss Price updated to {:.4f}".format(stopPrice))
                     
                 if currentPrice >= stopPrice:
-                    # print("Bought at " + str(currentPrice))
+                    print("Bought at " + str(currentPrice))
                     buy(currentPrice)
                     lastPurchasePriceAt = currentPrice
                     attemptPurchase = False
@@ -174,48 +173,47 @@ def handle_socket_order(msg):
                     firstRun = True
         elif orderType == "s":
             if firstRun:
-                previousPrice = float(msg["a"])
-                # print("Initial price is " + str(previousPrice))
-                stopPrice = previousPrice * slippage
-                # print("Initial Stop Loss Price updated to {:.4f}".format(stopPrice))
+                previousPrice = float(msg["b"])
+                print("Initial price is " + str(previousPrice))
+                stopPrice = previousPrice * slippage_sell
+                print("Initial Stop Loss Price updated to {:.4f}".format(stopPrice))
                 firstRun = False
             else:
-                currentPrice = float(msg["a"])
+                currentPrice = float(msg["b"])
                 # if currentPrice == previousPrice:
                 #     print("The price has stayed the same")
                 if currentPrice > previousPrice:
                     # print("Current price is " + str(currentPrice))
-                    newStopPrice = currentPrice * slippage
+                    newStopPrice = currentPrice * slippage_sell
 
                     if newStopPrice > stopPrice:
                         stopPrice = newStopPrice
                         # print("Stop Loss Price updated to {:.4f}".format(stopPrice))
                     
-                if currentPrice <= stopPrice:
-                    # print("Sold at " + str(currentPrice))
+                if currentPrice <= stopPrice and currentPrice:
+                    print("Sold at " + str(currentPrice))
                     sell(currentPrice)
-                    attemptPurchase = False
-                    activeOrder = False
-                    firstRun = True
-
-                    previousPrice = currentPrice
 
 def buy(BTC_price):
     global USDT_balance, BTC_balance, USDT_spent, noOfOrders, purchase_size, buy_orders, previousPrice
+    print("before buy")
+    printBalance()
 
     # BTC_price = BTC_price * commission
 
     if noOfOrders == 0:
-        purchase_size = 100
+        purchase_size = 10
     else:
         purchase_size = purchase_size * 2
 
     USDT_amount = purchase_size
+
+    rounded_amount = round_step_size(USDT_amount, quote_tick_size)
     
     if USDT_amount <= USDT_balance:
         order = client.order_market_buy(
             symbol=TRADE_SYMBOL,
-            quoteOrderQty=USDT_amount)
+            quoteOrderQty=rounded_amount)
 
         previousPrice = BTC_price
 
@@ -229,26 +227,43 @@ def buy(BTC_price):
 
     buy_orders += 1
 
+    print("after buy")
+    printBalance()
+
 def sell(BTC_price):
-    global USDT_balance, BTC_balance, USDT_spent, noOfOrders, sell_orders
+    global USDT_balance, BTC_balance, USDT_spent, noOfOrders, sell_orders, profit, attemptPurchase, activeOrder, firstRun, previousPrice
+    print("before sell")
+    printBalance()
 
     # BTC_price = BTC_price / commission
 
-    rounded_amount = round_step_size(BTC_balance, tick_size)
+    rounded_amount = round_step_size(BTC_balance, base_tick_size)
 
-    order = client.order_market_sell(
+    try:
+        order = client.order_market_sell(
         symbol=TRADE_SYMBOL,
         quantity=rounded_amount)
+    except Exception as e:
+        print("an exception occured - {}".format(e))
+    else:
+        print("sell")
+        print(order)
+        
+        USDT_balance += float(order['cummulativeQuoteQty'])
+        BTC_balance -= float(order['executedQty'])
+        profit += float(order['cummulativeQuoteQty']) - USDT_spent
+        print("Profit: {:.4f}".format(profit))
+        USDT_spent = 0
+        
+        noOfOrders = 0
+        sell_orders += 1
 
-    print("sell")
-    print(order)
-    
-    USDT_balance += float(order['cummulativeQuoteQty'])
-    BTC_balance -= float(order['executedQty'])
-    USDT_spent -= float(order['cummulativeQuoteQty'])
-    noOfOrders = 0
+        attemptPurchase = False
+        activeOrder = False
+        firstRun = True
 
-    sell_orders += 1
+        print("after sell")
+        printBalance()
 
 updateBalance()
 
@@ -261,4 +276,3 @@ twm.start_kline_socket(callback=handle_socket_candle, symbol=TRADE_SYMBOL)
 twm.start_symbol_book_ticker_socket(callback=handle_socket_order, symbol=TRADE_SYMBOL)
 
 twm.join()
-

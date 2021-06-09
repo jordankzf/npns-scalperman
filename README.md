@@ -41,6 +41,9 @@ This is how the algorithm works:
 3. Implement averaging down. ✅
 4. Implement MIMO sell. ✅
 5. Implement backtesting. ✅
+6. Rename USDT / BTC variables.
+7. Implement proper disconnecting.
+8. Refactor completely.
 
 ## Resources
 
