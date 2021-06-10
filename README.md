@@ -41,9 +41,11 @@ This is how the algorithm works:
 3. Implement averaging down. ✅
 4. Implement MIMO sell. ✅
 5. Implement backtesting. ✅
-6. Rename USDT / BTC variables.
-7. Implement proper disconnecting.
-8. Refactor completely.
+6. Clean up variable names. ✅
+7. Implement graceful exiting. ✅
+8. Refactor with OOP.
+9. Integrate Telegram bot support.
+10. Implement crash recovery.
 
 ## Resources
 

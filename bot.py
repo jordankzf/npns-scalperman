@@ -6,92 +6,110 @@ import pandas as pd
 import numpy as np
 from ta.momentum import StochasticOscillator
 from ta.volume import ForceIndexIndicator, VolumeWeightedAveragePrice
+from signal import signal, SIGINT
+from sys import exit
 
-# Set variables
-TRADE_SYMBOL = "THETAUSDT"
-base_tick_size = 0.001
-quote_tick_size = 0.000001
+# Constants
+TRADE_SYMBOL = 'THETAUSDT'
+FIAT_COIN = 'USDT'
+BASE_PRECISION = 0.001
+QUOTE_PRECISION = 0.000001
+COMMISSION = 1.0006
+BUY_SLIPPAGE = 0.997
+SELL_SLIPPAGE = 0.998
+DOUBLE_DOWN_TARGET = 0.994
+INITIAL_PURCHASE_SIZE = 10
 
-commission = 1.0006
-slippage_buy = 0.997
-slippage_sell = 0.998
+# Ordering variables
+previous_price = 99999.0
+current_price = 99999.0
+stop_price = 99999.0
+new_stop_price = 99999.0
+last_buy_price = 99999.0
+order_type = 'b'
+trailing_order_first_run = True
+attempt_order = False
+have_open_position = False
+open_positions_count = 0
+current_purchase_size = 10
+buy_orders_count = 0
+sell_orders_count = 0
 
-previousPrice = 99999.0
-currentPrice = 99999.0
-stopPrice = 99999.0
-newStopPrice = 99999.0
-firstRun = True
-attemptPurchase = False
-activeOrder = False
-orderType = "b"
-lastPurchasePriceAt = 99999.0
-noOfOrders = 0
-
-USDT_balance = 0
-BTC_balance = 0
-USDT_spent = 0
-purchase_size = 10
+# Wallet variables
+quote_balance = 0
+base_balance = 0
+quote_spent = 0
 profit = 0
-
-buy_orders = 0
-sell_orders = 0
 
 # Initialize Binance client
 client = Client(config.API_KEY, config.API_SECRET, testnet=False)
+client.API_URL = 'https://api2.binance.com/api'
 
 # Grab latest candlesticks from 1 hour ago till now (total of 60)
 klines = client.get_historical_klines(TRADE_SYMBOL, Client.KLINE_INTERVAL_1MINUTE, "2 hours ago UTC")
 
 # Convert klines to numpy array to truncate unimportant columns
-npKlines = np.array(klines)
-klines = npKlines[:,:6]
+np_klines = np.array(klines)
+klines = np_klines[:,:6]
 
 # Convert numpy array to Pandas dataframe and name each column
-btc_df = pd.DataFrame(klines, columns=['Time', 'Open', 'High', 'Low', 'Close', 'Volume'])
+base_df = pd.DataFrame(klines, columns=['Time', 'Open', 'High', 'Low', 'Close', 'Volume'])
 
 # Convert API string values to float
-btc_df = btc_df.astype(float)
+base_df = base_df.astype(float)
 
 # Convert unix timestamp to human readable datetime
-btc_df.set_index('Time', inplace=True)
-btc_df.index = pd.to_datetime(btc_df.index, unit='ms')
+base_df.set_index('Time', inplace=True)
+base_df.index = pd.to_datetime(base_df.index, unit='ms')
 
 # Save/load processed klines data as CSV file (for debugging purposes)
-# btc_df.to_csv('btc_bars3.csv')
-# btc_df = pd.read_csv('btc_bars3.csv', index_col=0)
+# base_df.to_csv('base_bars3.csv')
+# base_df = pd.read_csv('base_bars3.csv', index_col=0)
 
 def updateBalance():
-    global USDT_balance, BTC_balance
-    USDT_balance = float(client.get_asset_balance(asset='USDT')['free'])
-    # BTC_balance = float(client.get_asset_balance(asset='BTC')['free'])
+    global quote_balance, base_balance
+    quote_balance = float(client.get_asset_balance(asset=FIAT_COIN)['free'])
+    # base_balance = float(client.get_asset_balance(asset='BTC')['free'])
 
 def printBalance():
-    global USDT_balance, BTC_balance, USDT_spent
-    print("USDT_balance is {:.2f}".format(USDT_balance))
-    print("USDT_spent is {:.2f}".format(USDT_spent))
-    print("BTC_balance is {:.2f}".format(BTC_balance))
+    global quote_balance, base_balance, quote_spent
+    print("quote_balance is {:.2f}".format(quote_balance))
+    print("quote_spent is {:.2f}".format(quote_spent))
+    print("base_balance is {:.2f}".format(base_balance))
+    
 
+def candle_listener(message):
+    global base_df, attempt_order, have_open_position, order_type
+    candle = message['k']
 
-def calcIndicators(btc_df):
-    global attemptPurchase, activeOrder, orderType
+    candle['t'] = pd.to_datetime(candle['t'], unit='ms')
+
+    base_df.loc[candle['t']] = [float(candle['o']), float(candle['h']), float(candle['l']), float(candle['c']), float(candle['v'])]
+
+    # Trim to latest 120 rows
+    base_df = base_df.tail(120)
+
+    # print (base_df)
+    # base_df = base_df.append(new_row, ignore_index=False)
+
     # Clone dataframe
-    withIndicators_df = btc_df.copy()
+    withIndicators_df = base_df.copy()
 
     # Calculate TA indicators
     stoch_indicator = StochasticOscillator(close=withIndicators_df['Close'], high=withIndicators_df['High'], low=withIndicators_df['Low'])
-    force_index_indicator = ForceIndexIndicator(close=withIndicators_df['Close'], volume=withIndicators_df['Volume'])
-    vwap_indicator = VolumeWeightedAveragePrice(close=withIndicators_df['Close'], high=withIndicators_df['High'], low=withIndicators_df['Low'], volume=withIndicators_df['Volume'])
+    # force_index_indicator = ForceIndexIndicator(close=withIndicators_df['Close'], volume=withIndicators_df['Volume'])
+    # vwap_indicator = VolumeWeightedAveragePrice(close=withIndicators_df['Close'], high=withIndicators_df['High'], low=withIndicators_df['Low'], volume=withIndicators_df['Volume'])
 
     # Add TA indicators as columns to cloned dataframe
     withIndicators_df['Stoch K'] = stoch_indicator.stoch()
-    withIndicators_df['Force Index'] = force_index_indicator.force_index()
-    withIndicators_df['VWAP'] = vwap_indicator.volume_weighted_average_price()
+    # withIndicators_df['Force Index'] = force_index_indicator.force_index()
+    # withIndicators_df['VWAP'] = vwap_indicator.volume_weighted_average_price()
 
     # Grab latest tick indicator values
     current_stochK = withIndicators_df.tail(1)['Stoch K'].values[0]
-    current_FI = withIndicators_df.tail(1)['Force Index'].values[0]
-    current_VWAP = withIndicators_df.tail(1)['VWAP'].values[0]
-    currentClose = withIndicators_df.tail(1)['Close'].values[0]
+    # current_FI = withIndicators_df.tail(1)['Force Index'].values[0]
+    # current_VWAP = withIndicators_df.tail(1)['VWAP'].values[0]
+    # currentClose = withIndicators_df.tail(1)['Close'].values[0]
 
     # Grab average indicator value
     # average_FI = withIndicators_df.tail(60)['Force Index'].mean()
@@ -101,143 +119,122 @@ def calcIndicators(btc_df):
     # print("VWAP is {:.2f}".format(current_VWAP))
     # print("Current Price is {:.2f}".format(currentClose))
 
-    # if current_FI <= -500 and current_stochK <= 20 and not activeOrder:
-    if current_stochK <= 8 and not activeOrder:
-        orderType = "b"
-        attemptPurchase = True
+    # if current_FI <= -500 and current_stochK <= 20 and not have_open_position:
+    if current_stochK <= 8 and not have_open_position:
+        order_type = "b"
+        attempt_order = True
 
-def appendRow(candle):
-    global btc_df
-    candle['t'] = pd.to_datetime(candle['t'], unit='ms')
+def calc_cost_basis():
+    global quote_spent, base_balance
+    return quote_spent / base_balance * COMMISSION * COMMISSION
 
-    btc_df.loc[candle['t']] = [float(candle['o']), float(candle['h']), float(candle['l']), float(candle['c']), float(candle['v'])]
+def calc_take_profit():
+    return calc_cost_basis() * 1.003
 
-    # Trim to latest 120 rows
-    btc_df = btc_df.tail(120)
-
-    # print (btc_df)
-    # btc_df = btc_df.append(new_row, ignore_index=False)
-
-    calcIndicators(btc_df)
-
-def handle_socket_candle(message):
-    candle = message['k']
-
-    # is_candle_closed = candle['x']
-    appendRow(candle)
-
-def calcCostBasis():
-    global USDT_spent, BTC_balance
-    return USDT_spent / BTC_balance * commission * commission
-
-def calcProfitTarget():
-    return calcCostBasis() * 1.003
-
-def handle_socket_order(msg):
-    global firstRun, previousPrice, stopPrice, newStopPrice, attemptPurchase, activeOrder, orderType, lastPurchasePriceAt, slippage_buy, slippage_sell
-    if activeOrder:
+def book_ticker_listener(msg):
+    global trailing_order_first_run, previous_price, stop_price, new_stop_price, attempt_order, have_open_position, order_type, last_buy_price, BUY_SLIPPAGE, SELL_SLIPPAGE
+    if have_open_position:
         # If I'm at profit
-        if float(msg["b"]) > calcProfitTarget():
-            orderType = "s"
-            attemptPurchase = True
+        if float(msg["b"]) > calc_take_profit():
+            order_type = "s"
+            attempt_order = True
         # If price dropped further
-        if float(msg["a"]) < (lastPurchasePriceAt * 0.994):
-            orderType = "b"
-            attemptPurchase = True
-    if attemptPurchase:
-        if orderType == "b":
-            if firstRun:
-                previousPrice = float(msg["a"])
-                print("Initial price is " + str(previousPrice))
-                stopPrice = previousPrice / slippage_buy
-                print("Initial Stop Loss Price updated to {:.4f}".format(stopPrice))
-                firstRun = False
+        if float(msg["a"]) < (last_buy_price * DOUBLE_DOWN_TARGET):
+            order_type = "b"
+            attempt_order = True
+    if attempt_order:
+        if order_type == "b":
+            if trailing_order_first_run:
+                previous_price = float(msg["a"])
+                print("Initial price is " + str(previous_price))
+                stop_price = previous_price / BUY_SLIPPAGE
+                print("Initial Trailing Stop Buy Price set to {:.4f}".format(stop_price))
+                trailing_order_first_run = False
             else:
-                currentPrice = float(msg["a"])
-                # if currentPrice == previousPrice:
+                current_price = float(msg["a"])
+                # if current_price == previous_price:
                 #     print("The price has stayed the same")
-                if currentPrice < previousPrice:
-                    # print("Current price is " + str(currentPrice))
-                    newStopPrice = currentPrice / slippage_buy
+                if current_price < previous_price:
+                    # print("Current price is " + str(current_price))
+                    new_stop_price = current_price / BUY_SLIPPAGE
 
-                    if newStopPrice < stopPrice:
-                        stopPrice = newStopPrice
-                        # print("Stop Loss Price updated to {:.4f}".format(stopPrice))
+                    if new_stop_price < stop_price:
+                        stop_price = new_stop_price
+                        print("Trailing Stop Buy Price updated to {:.4f}".format(stop_price))
                     
-                if currentPrice >= stopPrice:
-                    print("Bought at " + str(currentPrice))
-                    buy(currentPrice)
-                    lastPurchasePriceAt = currentPrice
-                    attemptPurchase = False
-                    activeOrder = True
-                    firstRun = True
-        elif orderType == "s":
-            if firstRun:
-                previousPrice = float(msg["b"])
-                print("Initial price is " + str(previousPrice))
-                stopPrice = previousPrice * slippage_sell
-                print("Initial Stop Loss Price updated to {:.4f}".format(stopPrice))
-                firstRun = False
+                if current_price >= stop_price:
+                    print("Bought at " + str(current_price))
+                    buy(current_price)
+                    last_buy_price = current_price
+                    attempt_order = False
+                    have_open_position = True
+                    trailing_order_first_run = True
+
+                previous_price = current_price
+                
+        elif order_type == "s":
+            if trailing_order_first_run:
+                previous_price = float(msg["b"])
+                print("Initial price is " + str(previous_price))
+                stop_price = previous_price * SELL_SLIPPAGE
+                print("Initial Trailing Stop Sell Price set to {:.4f}".format(stop_price))
+                trailing_order_first_run = False
             else:
-                currentPrice = float(msg["b"])
-                # if currentPrice == previousPrice:
+                current_price = float(msg["b"])
+                # if current_price == previous_price:
                 #     print("The price has stayed the same")
-                if currentPrice > previousPrice:
-                    # print("Current price is " + str(currentPrice))
-                    newStopPrice = currentPrice * slippage_sell
+                if current_price > previous_price:
+                    # print("Current price is " + str(current_price))
+                    new_stop_price = current_price * SELL_SLIPPAGE
 
-                    if newStopPrice > stopPrice:
-                        stopPrice = newStopPrice
-                        # print("Stop Loss Price updated to {:.4f}".format(stopPrice))
+                    if new_stop_price > stop_price:
+                        stop_price = new_stop_price
+                        print("Trailing Stop Sell updated to {:.4f}".format(stop_price))
                     
-                if currentPrice <= stopPrice and currentPrice:
-                    print("Sold at " + str(currentPrice))
-                    sell(currentPrice)
+                if current_price <= stop_price and current_price:
+                    print("Sold at " + str(current_price))
+                    sell(current_price)
 
-def buy(BTC_price):
-    global USDT_balance, BTC_balance, USDT_spent, noOfOrders, purchase_size, buy_orders, previousPrice
+                previous_price = current_price
+
+def buy(base_price):
+    global quote_balance, base_balance, quote_spent, open_positions_count, INITIAL_PURCHASE_SIZE, current_purchase_size, buy_orders_count, previous_price
     print("before buy")
     printBalance()
 
-    # BTC_price = BTC_price * commission
-
-    if noOfOrders == 0:
-        purchase_size = 10
+    if open_positions_count == 0:
+        current_purchase_size = INITIAL_PURCHASE_SIZE
     else:
-        purchase_size = purchase_size * 2
+        current_purchase_size *= 2
 
-    USDT_amount = purchase_size
+    quote_amount = current_purchase_size
 
-    rounded_amount = round_step_size(USDT_amount, quote_tick_size)
+    rounded_amount = round_step_size(quote_amount, QUOTE_PRECISION)
     
-    if USDT_amount <= USDT_balance:
+    if quote_amount <= quote_balance:
         order = client.order_market_buy(
             symbol=TRADE_SYMBOL,
             quoteOrderQty=rounded_amount)
 
-        previousPrice = BTC_price
-
         print("buy")
         print(order)
 
-        USDT_balance -= float(order['cummulativeQuoteQty'])
-        USDT_spent += float(order['cummulativeQuoteQty'])
-        BTC_balance += float(order['executedQty'])
-        noOfOrders += 1
+        quote_balance -= float(order['cummulativeQuoteQty'])
+        quote_spent += float(order['cummulativeQuoteQty'])
+        base_balance += float(order['executedQty'])
+        open_positions_count += 1
 
-    buy_orders += 1
+    buy_orders_count += 1
 
     print("after buy")
     printBalance()
 
-def sell(BTC_price):
-    global USDT_balance, BTC_balance, USDT_spent, noOfOrders, sell_orders, profit, attemptPurchase, activeOrder, firstRun, previousPrice
+def sell(base_price):
+    global quote_balance, base_balance, quote_spent, open_positions_count, sell_orders_count, profit, attempt_order, have_open_position, trailing_order_first_run, previous_price
     print("before sell")
     printBalance()
 
-    # BTC_price = BTC_price / commission
-
-    rounded_amount = round_step_size(BTC_balance, base_tick_size)
+    rounded_amount = round_step_size(base_balance, BASE_PRECISION)
 
     try:
         order = client.order_market_sell(
@@ -249,30 +246,45 @@ def sell(BTC_price):
         print("sell")
         print(order)
         
-        USDT_balance += float(order['cummulativeQuoteQty'])
-        BTC_balance -= float(order['executedQty'])
-        profit += float(order['cummulativeQuoteQty']) - USDT_spent
+        quote_balance += float(order['cummulativeQuoteQty'])
+        profit += (float(order['cummulativeQuoteQty']) - quote_spent) / COMMISSION / COMMISSION
         print("Profit: {:.4f}".format(profit))
-        USDT_spent = 0
+        base_balance = 0
+        quote_spent = 0
         
-        noOfOrders = 0
-        sell_orders += 1
+        open_positions_count = 0
+        sell_orders_count += 1
 
-        attemptPurchase = False
-        activeOrder = False
-        firstRun = True
+        attempt_order = False
+        have_open_position = False
+        trailing_order_first_run = True
 
         print("after sell")
         printBalance()
 
-updateBalance()
+def handler(signal_received, frame):
+    print('SIGINT or CTRL-C detected. Exiting gracefully')
+    twm.stop()
+    client.close_connection()
+    exit(0)
 
-twm = ThreadedWebsocketManager(config.API_KEY, config.API_SECRET)
-# start is required to initialise its internal loop
-twm.start()
+if __name__ == '__main__':
+    # Tell Python to run the handler() function when SIGINT is recieved
+    signal(SIGINT, handler)
 
-twm.start_kline_socket(callback=handle_socket_candle, symbol=TRADE_SYMBOL)
+    updateBalance()
 
-twm.start_symbol_book_ticker_socket(callback=handle_socket_order, symbol=TRADE_SYMBOL)
+    twm = ThreadedWebsocketManager(config.API_KEY, config.API_SECRET)
+    # start is required to initialise its internal loop
+    twm.start()
 
-twm.join()
+    twm.start_kline_socket(callback=candle_listener, symbol=TRADE_SYMBOL)
+
+    twm.start_symbol_book_ticker_socket(callback=book_ticker_listener, symbol=TRADE_SYMBOL)
+
+    twm.join()
+
+    print('Running. Press CTRL-C to exit.')
+    while True:
+        # Do nothing and hog CPU forever until SIGINT received.
+        pass
