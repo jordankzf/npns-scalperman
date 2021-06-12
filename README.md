@@ -33,6 +33,10 @@ This is how the algorithm works:
 4. RTD - Ride the dip
 5. JBAP - Just be a pussy
 
+## Instructions
+1. Create a Discord bot
+2. Add it to your server via https://discord.com/oauth2/authorize?client_id=852766365012983828&permissions=268823632&scope=bot
+
 ## To-do list
 
 1. Implement Stochastic monitoring. ✅
@@ -43,9 +47,10 @@ This is how the algorithm works:
 5. Implement backtesting. ✅
 6. Clean up variable names. ✅
 7. Implement graceful exiting. ✅
-8. Refactor with OOP.
-9. Integrate Telegram bot support.
-10. Implement crash recovery.
+8. Refactor with OOP. ✅
+9. Integrate Discord bot support. ✅
+10. Fix indiscriminately selecting first webhook.
+11. Implement crash recovery.
 
 ## Resources
 
