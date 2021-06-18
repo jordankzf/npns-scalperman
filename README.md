@@ -49,8 +49,16 @@ This is how the algorithm works:
 7. Implement graceful exiting. ✅
 8. Refactor with OOP. ✅
 9. Integrate Discord bot support. ✅
-10. Fix indiscriminately selecting first webhook.
-11. Implement crash recovery.
+10. Instabuy / instasell based on Force Index. ❌
+11. Fix trailing stop. ❌
+12. Implement crash recovery. ❌
+
+## Known bugs
+1. $webhook command indiscriminately selects first existing webhook.
+2. config.WEBHOOK doesn't work when it's empty.
+3. Ctrl+C crash recovery doesn't exit gracefully. ❌
+4. buy() missing 1 required positional argument: 'self' ✅ Fixed
+5. current_purchase_size will double endlessly if quote asset runs out. ✅
 
 ## Resources
 
