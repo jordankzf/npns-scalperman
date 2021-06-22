@@ -27,9 +27,13 @@ class Strategy(object):
     buy_slippage = 0.002
     sell_slippage = 0.002
     initial_double_down_target_percent = 0.001
-    R_ddt = 2
+    R_ddt = 1.7
     initial_purchase_size = 10
-    R_ips = 3.14
+    R_ips = 1.808
+    total_bullets = 10
+
+    # def calc_R_ddt(self):
+    #     total = (Strategy.initial_purchase_size * (1 - Strategy.R_ddt ** Strategy.total_bullets)) / (1 - Strategy.R_ddt)
 
 class Klines(object):
     base_df = None
@@ -76,7 +80,7 @@ class Klines(object):
 
         # Grab latest tick indicator values
         current_stochK = Klines.with_indicators_df.tail(1)['Stoch K'].values[0]
-        # current_FI = Klines.with_indicators_df.tail(1)['Force Index'].values[0]
+        current_FI = Klines.with_indicators_df.tail(1)['Force Index'].values[0]
         # current_VWAP = Klines.with_indicators_df.tail(1)['VWAP'].values[0]
         # currentClose = Klines.with_indicators_df.tail(1)['Close'].values[0]
 
@@ -89,7 +93,7 @@ class Klines(object):
         # print("Current Price is {:.2f}".format(currentClose))
 
         # if current_FI <= -500 and current_stochK <= 20 and not Trail.have_open_position:
-        if current_stochK <= 8 and not Trail.have_open_position and not Trail.hunting:
+        if current_stochK <= 8 and current_FI <= -50 and not Trail.have_open_position and not Trail.hunting:
             # Strategy.initial_purchase_size = current_FI / -50 * 10
             # Strategy.take_profit = 1 + (current_FI / -50 * 0.003)
             # Strategy.double_down_target = max((1 + (current_FI / -25 * 0.994)), 0.994)

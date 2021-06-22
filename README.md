@@ -52,6 +52,7 @@ This is how the algorithm works:
 10. Instabuy / instasell based on Force Index. ❌
 11. Fix trailing stop. ❌
 12. Implement crash recovery. ❌
+13. DIY Range-bound Force Index ❌
 
 ## Known bugs
 1. $webhook command indiscriminately selects first existing webhook.
