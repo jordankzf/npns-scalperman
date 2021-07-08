@@ -22,6 +22,9 @@ This is how the algorithm works:
 	1. Repeat if price drops further until running out of capital.
 1. If average cost basis price rises by 0.3%, close the position using trailing stop sell.
 
+## Class Diagram
+<img src="diagrams/class_diagram.png" width="600">
+
 ## Extra Features
 1. Volume monitoring
 2. Confidence adjustment
