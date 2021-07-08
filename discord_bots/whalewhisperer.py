@@ -2,7 +2,7 @@ from requests import post, get
 import time
 
 WHALE = "1P5ZEDWTKTFGxQjZphgWPQUpe554WKDfHQ"
-BARNACLE = "1FZWLKAAHHOOV3KZTGYX6QSSWXJ6SCXKSR"
+BARNACLE = "1FzWLkAahHooV3kzTgyx6qsswXJ6sCXkSR"
 
 WHALE_currentbal = None
 WHALE_lastbal = None
@@ -26,15 +26,27 @@ while True:
     WHALE_currentbal = get_address_balance(WHALE)
     time.sleep(10)
 
-    if (WHALE_currentbal - WHALE_lastbal) >= 1000:
+    change = (WHALE_currentbal - WHALE_lastbal)
+
+    if change >= 1000:
         discord("The 🐳 bought!")
+    elif change <= -1000:
+        discord("The 🐳 sold!")
+    else:
+        print(f"The 🐳's balance stayed the same at {WHALE_currentbal}")
 
     WHALE_lastbal = WHALE_currentbal
 
     BARNACLE_currentbal = get_address_balance(BARNACLE)
     time.sleep(10)
 
-    if (BARNACLE_currentbal - BARNACLE_currentbal) >= 1000:
+    change = (BARNACLE_currentbal - BARNACLE_lastbal)
+
+    if change >= 100:
         discord("The barnacle bought!")
+    elif change <= -100:
+        discord("The barnacle sold!")
+    else:
+        print(f"The barnacle's balance stayed the same at {BARNACLE_currentbal}")
 
     BARNACLE_lastbal = BARNACLE_currentbal
