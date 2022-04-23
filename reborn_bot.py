@@ -1,5 +1,4 @@
 import decimal
-from xmlrpc.client import Boolean
 from binance import Client, ThreadedWebsocketManager
 from pandas import to_datetime, DataFrame
 from ta.momentum import StochasticOscillator
@@ -10,9 +9,9 @@ decimal.getcontext().rounding = decimal.ROUND_DOWN
 class Strategy:
     def __init__(
         self,
-        profit_target : float = 0.00025,
-        base_precision : float = 0.001,
-        quote_precision : float = 0.00001,
+        profit_target : decimal.Decimal = 0.00025,
+        base_precision : decimal.Decimal = 0.001,
+        quote_precision : decimal.Decimal = 0.00001,
         base_symbol : str = 'ETH',
         quote_symbol : str = 'BUSD',
     ):
@@ -27,7 +26,7 @@ class Strategy:
 class Klines:
     def __init__(self):
         self.formatted_klines : DataFrame
-        self.above24hr : Boolean = False
+        self.above24hr : bool = False
      
     def format_klines(self, raw_klines):
         for row in raw_klines:
@@ -58,22 +57,22 @@ class Klines:
         return indicators_klines
     
     def symbolticker_listener(self, tick):
-        self.above24hr = float(tick["a"]) > float(tick["w"])
+        self.above24hr = decimal.Decimal(tick["a"]) > decimal.Decimal(tick["w"])
 
     def entry_signal(self, indicator_klines):
         current_stochK = indicator_klines.tail(1)['Stoch K'].values[0]
-        longboi = indicator_klines.tail(1)['High'].values[0] / indicator_klines.tail(1)['Low'].values[0] 
+        kline_length = indicator_klines.tail(1)['High'].values[0] / indicator_klines.tail(1)['Low'].values[0]
 
-        print(f"Stoch {current_stochK} Above24hr {self.above24hr} Longboi {longboi}")
-        return current_stochK >= 98 and self.above24hr and longboi >= 1.001
+        print(f"Stoch {current_stochK} Above24hr {self.above24hr} Longboi {kline_length}")
+        return current_stochK >= 98 and self.above24hr and kline_length >= 1.0005
 
 class Wallet:
     def __init__(self):
-        self.quote_balance : float = 0
-        self.base_balance : float = 0
-        self.quote_spent : float = 0
-        self.base_spent : float = 0
-        self.profit : float = 0
+        self.quote_balance : decimal.Decimal = 0
+        self.base_balance : decimal.Decimal = 0
+        self.quote_spent : decimal.Decimal = 0
+        self.base_spent : decimal.Decimal = 0
+        self.profit : decimal.Decimal = 0
 
     def balance_enquiry(self):
         print(
@@ -90,14 +89,14 @@ class Remisier:
         self.client = client
         self.klines = klines
 
-        self.last_entry_price : float
-        self.try_to_sell : Boolean = False
-        self.try_to_buy : Boolean = False
+        self.last_entry_price : decimal.Decimal
+        self.try_to_sell : bool = False
+        self.try_to_buy : bool = False
 
-        self.best_ask : float
+        self.best_ask : decimal.Decimal
 
-        self.buy_at_rounded : float
-        self.quantityRounded : float
+        self.buy_at_rounded : decimal.Decimal
+        self.quantityRounded : decimal.Decimal
 
     def open(self):
         quote_amount = self.wallet.base_balance
@@ -107,8 +106,6 @@ class Remisier:
         quantityRounded = decimal.Decimal(quote_amount)
         quantityRounded = round(quantityRounded, 4)
 
-        take_profit = 0.00025
-
         sell_at = self.best_ask + 0.1
         sell_at = round(sell_at, 2)
 
@@ -116,9 +113,9 @@ class Remisier:
 
         print(f"sell {sell}")
 
-        buy_at = sell_at * (1 - take_profit)
+        buy_at = sell_at * (1 - self.strategy.profit_target)
         self.buy_at_rounded = round(buy_at, 2)
-        quantity = quantityRounded * decimal.Decimal(1 + take_profit)
+        quantity = quantityRounded * decimal.Decimal(1 + self.strategy.profit_target)
         self.quantityRounded = round(quantity, 4)
 
         self.try_to_sell = True
@@ -126,11 +123,11 @@ class Remisier:
     def kline_listener(self, tick):
         self.klines.update_klines(tick)
 
-        if self.klines.entry_signal(self.klines.indicators()) and not self.try_to_buy and not self.try_to_sell:
+        if not self.try_to_sell and not self.try_to_buy and self.klines.entry_signal(self.klines.indicators()):
             self.open()
 
     def bookticker_listener(self, tick):
-        self.best_ask = float(tick["a"])
+        self.best_ask = decimal.Decimal(tick["a"])
 
     def user_listener(self, tick):
         if self.try_to_sell or self.try_to_buy:
@@ -155,7 +152,7 @@ class Main:
         self.remisier = Remisier(self.strategy, self.wallet, self.client, self.klines)
         
     def start(self):
-        self.wallet.base_balance = float(self.client.get_asset_balance(asset=self.strategy.base_symbol)['free'])
+        self.wallet.base_balance = decimal.Decimal(self.client.get_asset_balance(asset=self.strategy.base_symbol)['free'])
         
         self.klines.format_klines(self.client.get_historical_klines(self.strategy.trade_symbol, "1m", "1 hour ago UTC"))
 
@@ -167,6 +164,8 @@ class Main:
         self.twm.start_symbol_ticker_socket(callback=self.klines.symbolticker_listener, symbol=self.strategy.trade_symbol) # Get 24hr average
         self.twm.start_kline_socket(callback=self.remisier.kline_listener, symbol=self.strategy.trade_symbol)
         self.twm.start_user_socket(callback=self.remisier.user_listener) # Get purchase updates
+
+        self.twm.join()
 
         print("I have awoken Scalper-san. I hope she had a good rest.")
 
