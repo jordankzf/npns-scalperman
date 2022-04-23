@@ -10,8 +10,8 @@ class Strategy:
     def __init__(
         self,
         profit_target : decimal.Decimal = 0.00025,
-        base_precision : decimal.Decimal = 0.001,
-        quote_precision : decimal.Decimal = 0.00001,
+        base_precision : int = 4,
+        quote_precision : int = 2,
         base_symbol : str = 'ETH',
         quote_symbol : str = 'BUSD',
     ):
@@ -26,7 +26,6 @@ class Strategy:
 class Klines:
     def __init__(self):
         self.formatted_klines : DataFrame
-        self.above24hr : bool = False
      
     def format_klines(self, raw_klines):
         for row in raw_klines:
@@ -55,16 +54,6 @@ class Klines:
 
         indicators_klines['Stoch K'] = stoch_indicator.stoch()
         return indicators_klines
-    
-    def symbolticker_listener(self, tick):
-        self.above24hr = decimal.Decimal(tick["a"]) > decimal.Decimal(tick["w"])
-
-    def entry_signal(self, indicator_klines):
-        current_stochK = indicator_klines.tail(1)['Stoch K'].values[0]
-        kline_length = indicator_klines.tail(1)['High'].values[0] / indicator_klines.tail(1)['Low'].values[0]
-
-        print(f"Stoch {current_stochK} Above24hr {self.above24hr} Longboi {kline_length}")
-        return current_stochK >= 98 and self.above24hr and kline_length >= 1.0005
 
 class Wallet:
     def __init__(self):
@@ -89,7 +78,6 @@ class Remisier:
         self.client = client
         self.klines = klines
 
-        self.last_entry_price : decimal.Decimal
         self.try_to_sell : bool = False
         self.try_to_buy : bool = False
 
@@ -97,6 +85,7 @@ class Remisier:
 
         self.buy_at_rounded : decimal.Decimal
         self.quantityRounded : decimal.Decimal
+        self.above24hr : bool = False
 
     def open(self):
         quote_amount = self.wallet.base_balance
@@ -104,7 +93,7 @@ class Remisier:
         # rounded_amount = round_step_size(quote_amount, self.strategy.quote_precision)
 
         quantityRounded = decimal.Decimal(quote_amount)
-        quantityRounded = round(quantityRounded, 4)
+        quantityRounded = round(quantityRounded, self.strategy.base_precision)
 
         sell_at = self.best_ask + 0.1
         sell_at = round(sell_at, 2)
@@ -114,16 +103,21 @@ class Remisier:
         print(f"sell {sell}")
 
         buy_at = sell_at * (1 - self.strategy.profit_target)
-        self.buy_at_rounded = round(buy_at, 2)
+        self.buy_at_rounded = round(buy_at, self.strategy.quote_precision)
         quantity = quantityRounded * decimal.Decimal(1 + self.strategy.profit_target)
-        self.quantityRounded = round(quantity, 4)
+        self.quantityRounded = round(quantity, self.strategy.base_precision)
 
         self.try_to_sell = True
 
     def kline_listener(self, tick):
         self.klines.update_klines(tick)
 
-        if not self.try_to_sell and not self.try_to_buy and self.klines.entry_signal(self.klines.indicators()):
+        current_stochK = self.klines.indicators().tail(1)['Stoch K'].values[0]
+        kline_length = self.klines.indicators().tail(1)['High'].values[0] / self.klines.indicators().tail(1)['Low'].values[0]
+
+        print(f"Stoch {current_stochK} Above24hr {self.above24hr} Longboi {kline_length}")
+
+        if not self.try_to_sell and not self.try_to_buy and current_stochK >= 98 and self.above24hr and kline_length >= 1.0005:
             self.open()
 
     def bookticker_listener(self, tick):
@@ -140,7 +134,9 @@ class Remisier:
                 elif res['S'] == "SELL":
                     self.try_to_buy = True
                     self.try_to_sell = False
-        return
+
+    def symbolticker_listener(self, tick):
+        self.above24hr = decimal.Decimal(tick["a"]) > decimal.Decimal(tick["w"])
 
 class Main:
     def __init__(self, api_key, api_secret):
@@ -160,9 +156,9 @@ class Main:
 
         self.twm.start()
 
-        self.twm.start_symbol_book_ticker_socket(callback=self.remisier.bookticker_listener, symbol=self.strategy.trade_symbol)
-        self.twm.start_symbol_ticker_socket(callback=self.klines.symbolticker_listener, symbol=self.strategy.trade_symbol) # Get 24hr average
-        self.twm.start_kline_socket(callback=self.remisier.kline_listener, symbol=self.strategy.trade_symbol)
+        self.twm.start_symbol_book_ticker_socket(callback=self.remisier.bookticker_listener, symbol=self.strategy.trade_symbol) # Get best price
+        self.twm.start_symbol_ticker_socket(callback=self.remisier.symbolticker_listener, symbol=self.strategy.trade_symbol) # Get 24hr average
+        self.twm.start_kline_socket(callback=self.remisier.kline_listener, symbol=self.strategy.trade_symbol) # Calculate indicators
         self.twm.start_user_socket(callback=self.remisier.user_listener) # Get purchase updates
 
         self.twm.join()
@@ -174,7 +170,7 @@ class Main:
         self.twm.stop()
 
 if __name__ == "__main__":
-    main = Main("eUXdZ64iVV2b2Rwb53r675CXEb4DCcpCuymnjkj3CQRCsSEdcFG4J2xeJusxJsrW", "oXh6fDA0ricTeplgJ4HwIhD6767QvF1lHPyd8FMhaaqonUUD2mPTGpaNzRyanKba")
+    main = Main(config.API_KEY, config.API_SECRET)
 
     main.start()
 
