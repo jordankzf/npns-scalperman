@@ -26,7 +26,7 @@ class Strategy:
 class Klines:
     def __init__(self):
         self.formatted_klines : DataFrame
-     
+
     def format_klines(self, raw_klines):
         for row in raw_klines:
             del row[6:]
@@ -57,20 +57,31 @@ class Klines:
 
 class Wallet:
     def __init__(self):
+        self.initial_base_balance : decimal.Decimal = 0
         self.quote_balance : decimal.Decimal = 0
         self.base_balance : decimal.Decimal = 0
-        self.quote_spent : decimal.Decimal = 0
-        self.base_spent : decimal.Decimal = 0
-        self.profit : decimal.Decimal = 0
+        self.base_profit : decimal.Decimal = 0
+        self.quote_profit : decimal.Decimal = 0
+        self.percentage_profit : decimal.Decimal = 0.00
+        self.trades_made : int = 0
 
     def balance_enquiry(self):
         print(
+            f"Trades made: {self.trades_made}\n"
             f"Quote_balance: {self.quote_balance}\n"
-            f"Quote_spent: {self.quote_spent}\n"
             f"Base_balance: {self.base_balance}\n"
-            f"Base_spent: {self.base_spent}"
+            f"Base_profit: {self.base_profit}¢\n"
+            f"Quote_profit: ${self.quote_profit}\n"
+            f"Percentage_profit: {self.percentage_profit}%\n"
         )
-            
+
+    def calculate_profit(self, profit_target, best_ask):
+        self.trades_made += 1
+        self.base_profit = self.base_balance * profit_target
+        self.quote_profit = self.base_profit * best_ask
+        self.percentage_profit = self.base_profit / self.initial_base_balance * 100
+        self.balance_enquiry()
+
 class Remisier:
     def __init__(self, strategy : Strategy, wallet : Wallet, client : Client, klines : Klines):
         self.strategy = strategy
@@ -84,7 +95,7 @@ class Remisier:
         self.best_ask : decimal.Decimal
 
         self.buy_at_rounded : decimal.Decimal
-        self.quantityRounded : decimal.Decimal
+        self.quantity_rounded : decimal.Decimal
         self.above24hr : bool = False
 
     def open(self):
@@ -92,20 +103,20 @@ class Remisier:
 
         # rounded_amount = round_step_size(quote_amount, self.strategy.quote_precision)
 
-        quantityRounded = decimal.Decimal(quote_amount)
-        quantityRounded = round(quantityRounded, self.strategy.base_precision)
+        quantity_rounded = decimal.Decimal(quote_amount)
+        quantity_rounded = round(quantity_rounded, self.strategy.base_precision)
 
         sell_at = self.best_ask + 0.1
         sell_at = round(sell_at, 2)
 
-        sell = self.client.order_limit_sell(symbol=self.strategy.trade_symbol, quantity=quantityRounded, price=sell_at)
+        sell = self.client.order_limit_sell(symbol=self.strategy.trade_symbol, quantity=quantity_rounded, price=sell_at)
 
         print(f"sell {sell}")
 
         buy_at = sell_at * (1 - self.strategy.profit_target)
         self.buy_at_rounded = round(buy_at, self.strategy.quote_precision)
-        quantity = quantityRounded * decimal.Decimal(1 + self.strategy.profit_target)
-        self.quantityRounded = round(quantity, self.strategy.base_precision)
+        quantity = quantity_rounded * decimal.Decimal(1 + self.strategy.profit_target)
+        self.quantity_rounded = round(quantity, self.strategy.base_precision)
 
         self.try_to_sell = True
 
@@ -115,23 +126,24 @@ class Remisier:
         current_stochK = self.klines.indicators().tail(1)['Stoch K'].values[0]
         kline_length = self.klines.indicators().tail(1)['High'].values[0] / self.klines.indicators().tail(1)['Low'].values[0]
 
-        print(f"Stoch {current_stochK} Above24hr {self.above24hr} Longboi {kline_length}")
-
         if not self.try_to_sell and not self.try_to_buy and current_stochK >= 98 and self.above24hr and kline_length >= 1.0005:
             self.open()
+        else:
+            print(f"StochK is {round(current_stochK, 2)}")
 
     def bookticker_listener(self, tick):
         self.best_ask = decimal.Decimal(tick["a"])
 
     def user_listener(self, tick):
         if self.try_to_sell or self.try_to_buy:
-            res = tick
-            if res['e'] == 'executionReport' and res['X'] == 'FILLED':
-                buy = self.client.order_limit_buy(symbol="ETHBUSD", quantity=self.quantityRounded, price=self.buy_at_rounded)
+            if tick['e'] == 'executionReport' and tick['X'] == 'FILLED' and tick['s'] == self.strategy.trade_symbol:
+                buy = self.client.order_limit_buy(symbol="ETHBUSD", quantity=self.quantity_rounded, price=self.buy_at_rounded)
                 print(f'buy {buy}')
-                if res['S'] == "BUY":
+                if tick['S'] == "BUY":
+                    self.wallet.calculate_profit(self.strategy.profit_target, self.best_ask)
                     self.try_to_buy = False
-                elif res['S'] == "SELL":
+                elif tick['S'] == "SELL":
+                    print(self.wallet.balance_enquiry)
                     self.try_to_buy = True
                     self.try_to_sell = False
 
@@ -146,10 +158,11 @@ class Main:
         self.klines = Klines()
         self.wallet = Wallet()
         self.remisier = Remisier(self.strategy, self.wallet, self.client, self.klines)
-        
+
     def start(self):
         self.wallet.base_balance = decimal.Decimal(self.client.get_asset_balance(asset=self.strategy.base_symbol)['free'])
-        
+        self.wallet.initial_base_balance = self.wallet.base_balance
+
         self.klines.format_klines(self.client.get_historical_klines(self.strategy.trade_symbol, "1m", "1 hour ago UTC"))
 
         self.wallet.balance_enquiry()
@@ -173,4 +186,3 @@ if __name__ == "__main__":
     main = Main(config.API_KEY, config.API_SECRET)
 
     main.start()
-
