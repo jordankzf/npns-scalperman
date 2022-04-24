@@ -17,7 +17,7 @@ precision = 0.0001
 # 5. Place buy order #3 + 0.025%
 
 async def main():
-    client = await AsyncClient.create("eUXdZ64iVV2b2Rwb53r675CXEb4DCcpCuymnjkj3CQRCsSEdcFG4J2xeJusxJsrW", "oXh6fDA0ricTeplgJ4HwIhD6767QvF1lHPyd8FMhaaqonUUD2mPTGpaNzRyanKba")
+    client = await AsyncClient.create()
     # client = await AsyncClient.create("YZu9lbP2nRYflUHU1TU3L9JS0QTORQni1TuvOTpbrp6QIPmYxNN2IpIakL5Ab2Pv", "i39EspBAfFC5bSWOydo2Jb1MKnre7ijDhFsWo3OEjlQQafeLP8kKUvT0EQy9mZFn", testnet=True)
     bsm = BinanceSocketManager(client)
 
@@ -30,11 +30,11 @@ async def main():
 
     lastPrice = ticker['lastPrice']
 
-    banned = ['1', '2', '8', '9']
-    if set(banned) & set(lastPrice[2:4]):
-        print("Have some discipline! Don't trade at pivot numbers.")
-        await client.close_connection()
-        quit()
+    # banned = ['1', '2', '8', '9']
+    # if set(banned) & set(lastPrice[2:4]):
+    #     print("Have some discipline! Don't trade at pivot numbers.")
+    #     await client.close_connection()
+    #     quit()
 
     if (decimal.Decimal(lastPrice) < average):
         print("Have some discipline! Wait till we're above the 24hr average.")

@@ -10,16 +10,16 @@ class Strategy:
         self,
         profit_target : float = 0.003,
         initial_double_down_target : float = 0.001,
-        double_down_target_ratio : float = 1.6,
-        initial_entry_size : float = 11,
-        order_size_ratio : float = 1.1,
-        bullets : int = 10,
+        double_down_target_ratio : float = 5.07659274961738,
+        initial_entry_size : float = 54,
+        order_size_ratio : float = 2.31776962504738,
+        bullets : int = 5,
         base_precision : float = 0.00001,
         quote_precision : float = 0.0000001,
         commission : float = 0.0006,
         base_symbol : str = 'ETH',
         quote_symbol : str = 'USDT',
-        bear_mode : bool = True
+        bear_mode : bool = False
     ):
         self.profit_target = profit_target
         self.initial_double_down_target = initial_double_down_target
@@ -78,9 +78,9 @@ class Klines:
         current_FI = indicator_klines.tail(1)['Force Index'].values[0]
 
         if bear_mode:
-            return current_stochK <= 8 and current_FI <= -500
+            return current_stochK <= 8 and current_FI <= -800
         else:
-            return current_stochK >= 90 and current_FI >= 500
+            return current_stochK >= 90 and current_FI >= 150
 
 class Wallet:
     def __init__(self):
@@ -249,12 +249,12 @@ class Remisier:
             if self.strategy.bear_mode:
                 if best_bid > self.take_profit():
                     self.close()
-                if best_ask < self.double_down_target():
+                elif best_ask < self.double_down_target():
                     self.open()
             else:
                 if best_bid < self.take_profit():
                     self.close()
-                if best_ask > self.double_down_target():
+                elif best_ask > self.double_down_target():
                     self.open()
 
 class Main:

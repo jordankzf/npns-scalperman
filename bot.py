@@ -2,11 +2,13 @@
 from binance import Client, ThreadedWebsocketManager
 # from binance.enums import *
 from binance.helpers import round_step_size
-import config as config
-from pandas import to_datetime, DataFrame
 from numpy import array
+from pandas import to_datetime, DataFrame
 from ta.momentum import StochasticOscillator
 from ta.volume import ForceIndexIndicator
+
+import config as config
+
 # from signal import signal, SIGINT
 # from sys import exit
 # from requests import post
@@ -17,6 +19,7 @@ FIAT_COIN = 'USDT'
 BASE_PRECISION = 0.001
 QUOTE_PRECISION = 0.000001
 COMMISSION = 0.0006
+
 
 # if config.WEBHOOK:
 #     def print(message):
@@ -35,6 +38,7 @@ class Strategy(object):
     # def calc_R_ddt(self):
     #     total = (Strategy.initial_purchase_size * (1 - Strategy.R_ddt ** Strategy.total_bullets)) / (1 - Strategy.R_ddt)
 
+
 class Klines(object):
     base_df = None
     with_indicators_df = None
@@ -42,7 +46,7 @@ class Klines(object):
     def get_formatted_klines(self):
         klines = client.get_historical_klines(TRADE_SYMBOL, "1m", "2 hours ago UTC")
         np_klines = array(klines)
-        klines = np_klines[:,:6]
+        klines = np_klines[:, :6]
         Klines.base_df = DataFrame(klines, columns=['Time', 'Open', 'High', 'Low', 'Close', 'Volume'])
         Klines.base_df = Klines.base_df.astype(float)
         Klines.base_df.set_index('Time', inplace=True)
@@ -57,7 +61,8 @@ class Klines(object):
 
         candle['t'] = to_datetime(candle['t'], unit='ms')
 
-        Klines.base_df.loc[candle['t']] = [float(candle['o']), float(candle['h']), float(candle['l']), float(candle['c']), float(candle['v'])]
+        Klines.base_df.loc[candle['t']] = [float(candle['o']), float(candle['h']), float(candle['l']),
+                                           float(candle['c']), float(candle['v'])]
 
         # Trim to latest 120 rows
         Klines.base_df = Klines.base_df.tail(120)
@@ -69,8 +74,11 @@ class Klines(object):
         Klines.with_indicators_df = Klines.base_df.copy()
 
         # Calculate TA indicators
-        stoch_indicator = StochasticOscillator(close=Klines.with_indicators_df['Close'], high=Klines.with_indicators_df['High'], low=Klines.with_indicators_df['Low'])
-        force_index_indicator = ForceIndexIndicator(close=Klines.with_indicators_df['Close'], volume=Klines.with_indicators_df['Volume'])
+        stoch_indicator = StochasticOscillator(close=Klines.with_indicators_df['Close'],
+                                               high=Klines.with_indicators_df['High'],
+                                               low=Klines.with_indicators_df['Low'])
+        force_index_indicator = ForceIndexIndicator(close=Klines.with_indicators_df['Close'],
+                                                    volume=Klines.with_indicators_df['Volume'])
         # vwap_indicator = VolumeWeightedAveragePrice(close=Klines.with_indicators_df['Close'], high=Klines.with_indicators_df['High'], low=Klines.with_indicators_df['Low'], volume=Klines.with_indicators_df['Volume'])
 
         # Add TA indicators as columns to cloned dataframe
@@ -102,6 +110,7 @@ class Klines(object):
             # Trail.order_type = "b"
             # Trail.hunting = True
 
+
 class Trail(object):
     # Ordering variables
     previous_price = None
@@ -122,13 +131,13 @@ class Trail(object):
 
     def buy(self):
         quote_amount = Trail.calc_purchase_size(self)
-        
+
         if quote_amount <= Wallet.quote_balance:
             rounded_amount = round_step_size(quote_amount, QUOTE_PRECISION)
             try:
                 order = client.order_market_buy(
-                symbol=TRADE_SYMBOL,
-                quoteOrderQty=rounded_amount)
+                    symbol=TRADE_SYMBOL,
+                    quoteOrderQty=rounded_amount)
             except Exception as e:
                 print(f"an exception occured - {e}")
             else:
@@ -167,23 +176,23 @@ class Trail(object):
 
         try:
             order = client.order_market_sell(
-            symbol=TRADE_SYMBOL,
-            quantity=rounded_amount)
+                symbol=TRADE_SYMBOL,
+                quantity=rounded_amount)
         except Exception as e:
             print(f"an exception occured - {e}")
         else:
             print(f"Sell Order Response {order}")
-            
+
             # Wallet.quote_balance += float(order['cummulativeQuoteQty'])
             # real_cost = float(order['cummulativeQuoteQty']) / float(order['executedQty'])
             cummulativeQuoteQty = float(order['cummulativeQuoteQty'])
             executedQty = float(order['executedQty'])
             Wallet.quote_balance += cummulativeQuoteQty
             real_cost = cummulativeQuoteQty / executedQty
-            
+
             this_profit = (real_cost / Wallet.calc_cost_basis(self) * Wallet.quote_spent) - Wallet.quote_spent
             Wallet.profit += this_profit
-            
+
             print(
                 f"Profit! I bestow upon you: {this_profit}\n"
                 f"So far, I have earned you {Wallet.profit} this session."
@@ -191,7 +200,7 @@ class Trail(object):
 
             Wallet.base_balance = 0
             Wallet.quote_spent = 0
-            
+
             Trail.open_positions_count = 0
             Trail.sell_orders_count += 1
 
@@ -249,40 +258,41 @@ class Trail(object):
         #                 if Trail.new_stop_price < Trail.stop_price:
         #                     Trail.stop_price = Trail.new_stop_price
         #                     print(f"Trailing Stop Buy Price updated to {Trail.stop_price}")
-                        
+
         #             if Trail.current_price >= Trail.stop_price:
         #                 print(f"Trying to buy at {Trail.current_price}")
         #                 Trail.buy(self)
 
         #             Trail.previous_price = Trail.current_price
-                
+
         #     if Trail.order_type == "s":
         #         Trail.sell(self)
-                # if Trail.trailing_order_first_run:
-                #     Trail.previous_price = best_bid
-                #     Trail.stop_price = Trail.previous_price - Trail.previous_price * Strategy.sell_slippage
-                #     print(
-                #         f"Initial sell price is {Trail.previous_price}\n"
-                #         f"Initial Trailing Stop Sell Price set to {Trail.stop_price}"
-                #     )
-                #     Trail.trailing_order_first_run = False
-                # else:
-                #     Trail.current_price = best_bid
-                #     # if Trail.current_price == Trail.previous_price:
-                #     #     print("The price has stayed the same")
-                #     if Trail.current_price > Trail.previous_price:
-                #         # print("Current price is " + str(Trail.current_price))
-                #         Trail.new_stop_price = Trail.current_price - Trail.current_price * Strategy.sell_slippage
+        # if Trail.trailing_order_first_run:
+        #     Trail.previous_price = best_bid
+        #     Trail.stop_price = Trail.previous_price - Trail.previous_price * Strategy.sell_slippage
+        #     print(
+        #         f"Initial sell price is {Trail.previous_price}\n"
+        #         f"Initial Trailing Stop Sell Price set to {Trail.stop_price}"
+        #     )
+        #     Trail.trailing_order_first_run = False
+        # else:
+        #     Trail.current_price = best_bid
+        #     # if Trail.current_price == Trail.previous_price:
+        #     #     print("The price has stayed the same")
+        #     if Trail.current_price > Trail.previous_price:
+        #         # print("Current price is " + str(Trail.current_price))
+        #         Trail.new_stop_price = Trail.current_price - Trail.current_price * Strategy.sell_slippage
 
-                #         if Trail.new_stop_price > Trail.stop_price:
-                #             Trail.stop_price = Trail.new_stop_price
-                #             print(f"Trailing Stop Sell updated to {Trail.stop_price}")
-                        
-                #     if Trail.current_price <= Trail.stop_price and Trail.current_price:
-                #         print(f"Trying to sell at {Trail.current_price}")
-                #         Trail.sell(self)
+        #         if Trail.new_stop_price > Trail.stop_price:
+        #             Trail.stop_price = Trail.new_stop_price
+        #             print(f"Trailing Stop Sell updated to {Trail.stop_price}")
 
-                #     Trail.previous_price = Trail.current_price
+        #     if Trail.current_price <= Trail.stop_price and Trail.current_price:
+        #         print(f"Trying to sell at {Trail.current_price}")
+        #         Trail.sell(self)
+
+        #     Trail.previous_price = Trail.current_price
+
 
 class Wallet(object):
     # Wallet variables
@@ -305,12 +315,14 @@ class Wallet(object):
     def update_balance(self):
         Wallet.quote_balance = float(client.get_asset_balance(asset=FIAT_COIN)['free'])
         # Wallet.base_balance = float(client.get_asset_balance(asset='BTC')['free'])
-    
+
+
 client = Client(config.API_KEY, config.API_SECRET, testnet=False)
 client.API_URL = 'https://api2.binance.com/api'
 
+
 class Binance_Bot:
-    def __init__ (self):
+    def __init__(self):
         print("I have awoken Mr. Scalperman. I hope he had a good rest.")
 
     def start(self):
@@ -340,6 +352,7 @@ class Binance_Bot:
     def wallet(self):
         return self.Wallet
 
+
 if __name__ == "__main__":
-   binance_bot = Binance_Bot()
-   binance_bot.start()
+    binance_bot = Binance_Bot()
+    binance_bot.start()
